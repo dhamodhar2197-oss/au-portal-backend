@@ -1,77 +1,58 @@
 const express = require('express');
-const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const Student = require('../models/Student');
 
 const router = express.Router();
-
-// Helper function to hash password
-const hashPassword = (password) => {
-  return crypto.createHash('sha256').update(password).digest('hex');
-};
 
 // Register
 router.post('/register', async (req, res) => {
   try {
     const { name, email, mobile, password, branch, rollNumber, year, semester, role } = req.body;
-    const db = req.db;
     
     // Check if user already exists
-    const existingUser = db.users.find(u => u.email === email);
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'Email already registered' });
     }
     
     if (role === 'student') {
-      const existingRollNumber = db.students.find(s => s.rollNumber === rollNumber);
+      const existingRollNumber = await User.findOne({ rollNumber });
       if (existingRollNumber) {
         return res.status(400).json({ message: 'Roll number already exists' });
       }
     }
     
-    // Hash password
-    const hashedPassword = hashPassword(password);
-    
     // Create user
-    const userId = Date.now().toString();
-    const user = {
-      id: userId,
+    const user = new User({
       name,
       email,
       phone: mobile,
-      password: hashedPassword,
+      password,
       role: role || 'student',
       department: branch,
-      username: role === 'student' ? null : username,
-      rollNumber: role === 'student' ? rollNumber : null,
-      createdAt: new Date().toISOString()
-    };
+      username: role === 'student' ? null : rollNumber,
+      rollNumber: role === 'student' ? rollNumber : null
+    });
     
-    db.users.push(user);
+    await user.save();
     
     // Create student profile if student
     if (role === 'student') {
-      const student = {
-        userId,
+      const student = new Student({
+        userId: user._id,
         rollNumber,
         year,
         semester,
         section: 'A',
-        batch: `${year}-${parseInt(year) + 4}`,
-        guardianName: '',
-        guardianPhone: '',
-        address: '',
-        dateOfBirth: new Date().toISOString(),
-        bloodGroup: '',
-        createdAt: new Date().toISOString()
-      };
-      db.students.push(student);
+        batch: `${year}-${parseInt(year) + 4}`
+      });
+      await student.save();
     }
-    
-    req.saveDb();
     
     // Generate JWT token
     const token = jwt.sign(
-      { userId, role: user.role },
+      { userId: user._id, role: user.role },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '24h' }
     );
@@ -80,11 +61,13 @@ router.post('/register', async (req, res) => {
       message: 'Registration successful',
       token,
       user: {
-        id: userId,
+        id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        department: user.department
+        department: user.department,
+        username: user.username,
+        rollNumber: user.rollNumber
       }
     });
   } catch (error) {
@@ -97,7 +80,6 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { username, rollNumber, password, role } = req.body;
-    const db = req.db;
     
     console.log('Login attempt:', { username, rollNumber, role });
     
@@ -115,7 +97,7 @@ router.post('/login', async (req, res) => {
     console.log('Query:', { queryField, queryValue });
     
     // Find user
-    const user = db.users.find(u => u[queryField] === queryValue && u.role === role);
+    const user = await User.findOne({ [queryField]: queryValue, role });
     
     console.log('Found user:', user ? user.name : 'Not found');
     
@@ -124,20 +106,16 @@ router.post('/login', async (req, res) => {
     }
     
     // Verify password
-    const hashedPassword = hashPassword(password);
-    console.log('Password check:', { 
-      inputHash: hashedPassword, 
-      storedHash: user.password,
-      match: user.password === hashedPassword 
-    });
+    const isMatch = await user.comparePassword(password);
+    console.log('Password match:', isMatch);
     
-    if (user.password !== hashedPassword) {
+    if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
     
     // Generate JWT token
     const token = jwt.sign(
-      { userId: user.id, role: user.role },
+      { userId: user._id, role: user.role },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '24h' }
     );
@@ -146,7 +124,7 @@ router.post('/login', async (req, res) => {
       message: 'Login successful',
       token,
       user: {
-        id: user.id,
+        id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
