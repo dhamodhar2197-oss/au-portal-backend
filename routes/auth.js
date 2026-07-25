@@ -1,7 +1,5 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const Student = require('../models/Student');
 
 const router = express.Router();
 
@@ -9,22 +7,24 @@ const router = express.Router();
 router.post('/register', async (req, res) => {
   try {
     const { name, email, mobile, password, branch, rollNumber, year, semester, role } = req.body;
+    const users = req.users;
     
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = users.find(u => u.email === email);
     if (existingUser) {
       return res.status(400).json({ message: 'Email already registered' });
     }
     
     if (role === 'student') {
-      const existingRollNumber = await User.findOne({ rollNumber });
+      const existingRollNumber = users.find(u => u.rollNumber === rollNumber);
       if (existingRollNumber) {
         return res.status(400).json({ message: 'Roll number already exists' });
       }
     }
     
     // Create user
-    const user = new User({
+    const user = {
+      _id: Date.now().toString(),
       name,
       email,
       phone: mobile,
@@ -33,22 +33,9 @@ router.post('/register', async (req, res) => {
       department: branch,
       username: role === 'student' ? null : rollNumber,
       rollNumber: role === 'student' ? rollNumber : null
-    });
+    };
     
-    await user.save();
-    
-    // Create student profile if student
-    if (role === 'student') {
-      const student = new Student({
-        userId: user._id,
-        rollNumber,
-        year,
-        semester,
-        section: 'A',
-        batch: `${year}-${parseInt(year) + 4}`
-      });
-      await student.save();
-    }
+    users.push(user);
     
     // Generate JWT token
     const token = jwt.sign(
@@ -80,6 +67,7 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { username, rollNumber, password, role } = req.body;
+    const users = req.users;
     
     console.log('Login attempt:', { username, rollNumber, role });
     
@@ -97,7 +85,7 @@ router.post('/login', async (req, res) => {
     console.log('Query:', { queryField, queryValue });
     
     // Find user
-    const user = await User.findOne({ [queryField]: queryValue, role });
+    const user = users.find(u => u[queryField] === queryValue && u.role === role);
     
     console.log('Found user:', user ? user.name : 'Not found');
     
@@ -106,10 +94,8 @@ router.post('/login', async (req, res) => {
     }
     
     // Verify password
-    const isMatch = await user.comparePassword(password);
-    console.log('Password match:', isMatch);
-    
-    if (!isMatch) {
+    if (user.password !== password) {
+      console.log('Password mismatch');
       return res.status(401).json({ message: 'Invalid credentials' });
     }
     
@@ -147,8 +133,9 @@ router.post('/logout', (req, res) => {
 // Get all users (for admin)
 router.get('/users', async (req, res) => {
   try {
-    const users = await User.find({}).select('-password');
-    res.json(users);
+    const users = req.users;
+    const usersWithoutPassword = users.map(u => ({ ...u, password: undefined }));
+    res.json(usersWithoutPassword);
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Error fetching users', error: error.message });

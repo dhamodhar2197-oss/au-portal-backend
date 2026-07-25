@@ -1,27 +1,20 @@
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
 const dotenv = require('dotenv');
-const User = require('./models/User');
 
 dotenv.config();
 
 const app = express();
 
-// MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI;
+// In-memory database
+let users = [];
 
-if (!MONGODB_URI) {
-  console.error('MONGODB_URI environment variable is required');
-  process.exit(1);
-}
-
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .then(async () => {
-    // Seed test users if they don't exist
-    const testUsers = [
+// Seed test users
+const seedUsers = () => {
+  if (users.length === 0) {
+    users = [
       {
+        _id: '1',
         name: 'Student Test',
         email: 'student@test.com',
         phone: '9876543210',
@@ -32,6 +25,7 @@ mongoose.connect(MONGODB_URI)
         rollNumber: '12345'
       },
       {
+        _id: '2',
         name: 'Faculty Test',
         email: 'faculty@test.com',
         phone: '9876543211',
@@ -42,6 +36,7 @@ mongoose.connect(MONGODB_URI)
         rollNumber: null
       },
       {
+        _id: '3',
         name: 'HOD Test',
         email: 'hod@test.com',
         phone: '9876543212',
@@ -52,6 +47,7 @@ mongoose.connect(MONGODB_URI)
         rollNumber: null
       },
       {
+        _id: '4',
         name: 'Admin Test',
         email: 'admin@test.com',
         phone: '9876543213',
@@ -62,28 +58,22 @@ mongoose.connect(MONGODB_URI)
         rollNumber: null
       }
     ];
+    console.log('Seeded test users');
+  }
+};
 
-    for (const testUser of testUsers) {
-      const existingUser = await User.findOne({ 
-        $or: [
-          { email: testUser.email },
-          { username: testUser.username },
-          { rollNumber: testUser.rollNumber }
-        ]
-      });
-      
-      if (!existingUser) {
-        await User.create(testUser);
-        console.log(`Created test user: ${testUser.role} - ${testUser.username || testUser.rollNumber}`);
-      }
-    }
-  })
-  .catch((err) => console.error('MongoDB connection error:', err));
+seedUsers();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Make users available to routes
+app.use((req, res, next) => {
+  req.users = users;
+  next();
+});
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
